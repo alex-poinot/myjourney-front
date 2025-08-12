@@ -127,19 +127,20 @@ export interface TabGroup {
               
               <!-- Dropdown des suggestions -->
               <div *ngIf="showUserDropdown" class="user-dropdown">
-                <div *ngIf="isLoadingUsers" class="loading-item">
+                <div *ngIf="isLoadingAllUsers" class="loading-item">
                   <i class="fas fa-spinner fa-spin"></i>
-                  Recherche en cours...
+                  Chargement des utilisateurs...
                 </div>
                 <div *ngFor="let user of filteredUsers" 
                      class="user-item"
                      (mousedown)="selectUser(user)">
                   <div class="user-info">
                     <div class="user-name">{{ user.USR_NOM }}</div>
+                    <div class="user-name">{{ user.USR_NOM }}</div>
                     <div class="user-email">{{ user.USR_MAIL }}</div>
                   </div>
                 </div>
-                <div *ngIf="!isLoadingUsers && filteredUsers.length === 0 && impersonationEmailInput.length >= 2" 
+                <div *ngIf="!isLoadingAllUsers && filteredUsers.length === 0 && impersonationEmailInput.length >= 2" 
                      class="no-results">
                   Aucun utilisateur trouvé
                 </div>
@@ -667,10 +668,11 @@ export class NavbarComponent {
   impersonatedEmail: string | null = null;
   showImpersonationModal = false;
   impersonationEmailInput = '';
-  searchSubject = new Subject<string>();
   filteredUsers: ApiUser[] = [];
+  allUsers: ApiUser[] = [];
+  usersLoaded = false;
   showUserDropdown = false;
-  isLoadingUsers = false;
+  isLoadingAllUsers = false;
   isImpersonating = false;
   defaultPhoto = 'https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?auto=compress&cs=tinysrgb&w=100';
 
@@ -715,26 +717,15 @@ export class NavbarComponent {
       this.impersonatedEmail = email;
       this.isImpersonating = email !== null;
     });
-    
-    // Configuration de la recherche avec debounce
-    this.searchSubject.pipe(
-      debounceTime(300),
-      distinctUntilChanged(),
-      switchMap(searchTerm => {
-        if (searchTerm.length < 2) {
-          return of([]);
-        }
-        return this.searchUsers(searchTerm);
-      })
-    ).subscribe(users => {
-      this.filteredUsers = users;
-      this.showUserDropdown = users.length > 0;
-      this.isLoadingUsers = false;
-    });
+
+    // Charger tous les utilisateurs au démarrage
+    this.loadAllUsers();
   }
 
-  private searchUsers(searchTerm: string): Promise<ApiUser[]> {
-    this.isLoadingUsers = true;
+  private async loadAllUsers(): Promise<void> {
+    if (this.usersLoaded) return;
+    
+    this.isLoadingAllUsers = true;
     
     if (environment.features.enableMockData) {
       // Données de test pour le mode Bolt
@@ -752,36 +743,48 @@ export class NavbarComponent {
         { USR_ID: 12, USR_NOM: "MAES", USR_MAIL: "damien.maes@fr.gt.com", USR_DATE_DEBUT: "2017-12-04T00:00:00.000Z", USR_UPDATE_DATE: "2025-07-28T12:30:12.203Z" }
       ];
       
-      const filtered = mockUsers.filter(user => 
-        user.USR_MAIL && 
-        user.USR_MAIL.toLowerCase().includes(searchTerm.toLowerCase())
-      ).slice(0, 10); // Limiter à 10 résultats
-      
-      return Promise.resolve(filtered);
+      // Filtrer les utilisateurs avec un email valide
+      this.allUsers = mockUsers.filter(user => user.USR_MAIL && user.USR_MAIL.trim() !== '');
+      this.usersLoaded = true;
+      this.isLoadingAllUsers = false;
+      return;
     }
     
-    return this.http.get<ApiResponse>(`${environment.apiUrl}/api/users/`)
-      .toPromise()
-      .then(response => {
-        if (response && response.success && response.data) {
-          return response.data
-            .filter(user => 
-              user.USR_MAIL && 
-              user.USR_MAIL.toLowerCase().includes(searchTerm.toLowerCase())
-            )
-            .slice(0, 10); // Limiter à 10 résultats
-        }
-        return [];
-      })
-      .catch(error => {
-        console.error('Erreur lors de la recherche d\'utilisateurs:', error);
-        return [];
-      });
+    try {
+      const response = await this.http.get<ApiResponse>(`${environment.apiUrl}/api/users/`).toPromise();
+      if (response && response.success && response.data) {
+        // Filtrer les utilisateurs avec un email valide
+        this.allUsers = response.data.filter(user => user.USR_MAIL && user.USR_MAIL.trim() !== '');
+        this.usersLoaded = true;
+      }
+    } catch (error) {
+      console.error('Erreur lors du chargement des utilisateurs:', error);
+      this.allUsers = [];
+    } finally {
+      this.isLoadingAllUsers = false;
+    }
   }
 
+  private searchUsersInCache(searchTerm: string): ApiUser[] {
+    if (!searchTerm || searchTerm.length < 2) {
+      return [];
+    }
+    
+    const term = searchTerm.toLowerCase();
+    return this.allUsers
+      .filter(user => 
+        user.USR_MAIL.toLowerCase().includes(term) ||
+        user.USR_NOM.toLowerCase().includes(term)
+      )
+      .slice(0, 10); // Limiter à 10 résultats pour les performances
+  }
+      
   onEmailInputChange(value: string): void {
     this.impersonationEmailInput = value;
-    this.searchSubject.next(value);
+    
+    // Recherche instantanée dans le cache
+    this.filteredUsers = this.searchUsersInCache(value);
+    this.showUserDropdown = this.filteredUsers.length > 0;
   }
 
   selectUser(user: ApiUser): void {
@@ -831,6 +834,11 @@ export class NavbarComponent {
     this.impersonationEmailInput = '';
     this.filteredUsers = [];
     this.showUserDropdown = false;
+    
+    // S'assurer que les utilisateurs sont chargés
+    if (!this.usersLoaded && !this.isLoadingAllUsers) {
+      this.loadAllUsers();
+    }
   }
   
   closeImpersonationModal(): void {
