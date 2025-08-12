@@ -740,6 +740,13 @@ export class NavbarComponent {
     this.loadAllUsers();
   }
 
+  private async loadAllUsers(): Promise<void> {
+    if (this.usersLoaded || this.isLoadingAllUsers) {
+      return;
+    }
+    
+    this.isLoadingAllUsers = true;
+    
     if (environment.features.enableMockData) {
       // Données de test pour le mode Bolt
       const mockUsers: ApiUser[] = [
@@ -858,10 +865,6 @@ export class NavbarComponent {
       this.authService.impersonateUser(this.impersonationEmailInput.trim());
       this.closeImpersonationModal();
     }
-  }
-  
-  stopImpersonation(): void {
-    this.authService.stopImpersonation();
   }
   
   stopImpersonation(): void {
