@@ -744,7 +744,7 @@ export class NavbarComponent {
     this.loadAllUsers();
   }
 
-  async loadAllUsers(): Promise<void> {
+  private async loadAllUsers(): Promise<void> {
     if (this.usersLoaded) return;
     
     this.isLoadingAllUsers = true;
@@ -787,7 +787,7 @@ export class NavbarComponent {
     }
   }
 
-  searchUsersInCache(searchTerm: string): ApiUser[] {
+  private searchUsersInCache(searchTerm: string): ApiUser[] {
     if (!searchTerm || searchTerm.length < 2) {
       return [];
     }
@@ -819,7 +819,7 @@ export class NavbarComponent {
     }, 200);
   }
 
-  loadUserPhoto(): void {
+  private async loadUserPhoto(): Promise<void> {
     // Cette méthode sera appelée automatiquement par AuthService
     // lors du chargement du profil utilisateur
   }
