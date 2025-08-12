@@ -864,6 +864,10 @@ export class NavbarComponent {
     this.authService.stopImpersonation();
   }
   
+  stopImpersonation(): void {
+    this.authService.stopImpersonation();
+  }
+  
   logout(): void {
     if (confirm('Êtes-vous sûr de vouloir vous déconnecter ?')) {
       this.authService.logout();
