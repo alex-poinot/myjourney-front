@@ -127,20 +127,19 @@ export interface TabGroup {
               
               <!-- Dropdown des suggestions -->
               <div *ngIf="showUserDropdown" class="user-dropdown">
-                <div *ngIf="isLoadingAllUsers" class="loading-item">
+                <div *ngIf="isLoadingUsers" class="loading-item">
                   <i class="fas fa-spinner fa-spin"></i>
-                  Chargement des utilisateurs...
+                  Recherche en cours...
                 </div>
                 <div *ngFor="let user of filteredUsers" 
                      class="user-item"
                      (mousedown)="selectUser(user)">
                   <div class="user-info">
                     <div class="user-name">{{ user.USR_NOM }}</div>
-                    <div class="user-name">{{ user.USR_NOM }}</div>
                     <div class="user-email">{{ user.USR_MAIL }}</div>
                   </div>
                 </div>
-                <div *ngIf="!isLoadingAllUsers && filteredUsers.length === 0 && impersonationEmailInput.length >= 2" 
+                <div *ngIf="!isLoadingUsers && filteredUsers.length === 0 && impersonationEmailInput.length >= 2" 
                      class="no-results">
                   Aucun utilisateur trouvé
                 </div>
@@ -673,8 +672,11 @@ export class NavbarComponent {
   usersLoaded = false;
   showUserDropdown = false;
   isLoadingAllUsers = false;
+  isLoadingUsers = false;
   isImpersonating = false;
   defaultPhoto = 'https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?auto=compress&cs=tinysrgb&w=100';
+
+  private searchSubject = new Subject<string>();
 
   tabGroups: TabGroup[] = [
     {
@@ -716,6 +718,26 @@ export class NavbarComponent {
     this.authService.impersonatedEmail$.subscribe(email => {
       this.impersonatedEmail = email;
       this.isImpersonating = email !== null;
+    });
+
+    // Configuration de la recherche avec debounce
+    this.searchSubject.pipe(
+      debounceTime(300),
+      distinctUntilChanged(),
+      switchMap(searchTerm => {
+        if (!searchTerm || searchTerm.length < 2) {
+          this.showUserDropdown = false;
+          return of([]);
+        }
+        
+        this.isLoadingUsers = true;
+        this.showUserDropdown = true;
+        
+        return of(this.searchUsersInCache(searchTerm));
+      })
+    ).subscribe(users => {
+      this.filteredUsers = users;
+      this.isLoadingUsers = false;
     });
 
     // Charger tous les utilisateurs au démarrage
@@ -778,13 +800,10 @@ export class NavbarComponent {
       )
       .slice(0, 10); // Limiter à 10 résultats pour les performances
   }
-      
+
   onEmailInputChange(value: string): void {
     this.impersonationEmailInput = value;
-    
-    // Recherche instantanée dans le cache
-    this.filteredUsers = this.searchUsersInCache(value);
-    this.showUserDropdown = this.filteredUsers.length > 0;
+    this.searchSubject.next(value);
   }
 
   selectUser(user: ApiUser): void {
@@ -834,11 +853,6 @@ export class NavbarComponent {
     this.impersonationEmailInput = '';
     this.filteredUsers = [];
     this.showUserDropdown = false;
-    
-    // S'assurer que les utilisateurs sont chargés
-    if (!this.usersLoaded && !this.isLoadingAllUsers) {
-      this.loadAllUsers();
-    }
   }
   
   closeImpersonationModal(): void {
