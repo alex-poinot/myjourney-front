@@ -11,8 +11,8 @@ interface ApiUser {
   USR_ID: number;
   USR_NOM: string;
   USR_MAIL: string;
-  USR_DATE_DEBUT: string;
-  USR_UPDATE_DATE: string;
+  USR_DATE_DEBUT: string | null;
+  USR_UPDATE_DATE: string | null;
 }
 
 interface ApiResponse {
@@ -127,7 +127,7 @@ export interface TabGroup {
               
               <!-- Dropdown des suggestions -->
               <div *ngIf="showUserDropdown" class="user-dropdown">
-                <div *ngIf="isLoadingUsers" class="loading-item">
+                <div *ngIf="isSearchingUsers" class="loading-item">
                   <i class="fas fa-spinner fa-spin"></i>
                   Recherche en cours...
                 </div>
@@ -139,7 +139,7 @@ export interface TabGroup {
                     <div class="user-email">{{ user.USR_MAIL }}</div>
                   </div>
                 </div>
-                <div *ngIf="!isLoadingUsers && filteredUsers.length === 0 && impersonationEmailInput.length >= 2" 
+                <div *ngIf="!isSearchingUsers && filteredUsers.length === 0 && impersonationEmailInput.length >= 2" 
                      class="no-results">
                   Aucun utilisateur trouvé
                 </div>
@@ -672,11 +672,10 @@ export class NavbarComponent {
   usersLoaded = false;
   showUserDropdown = false;
   isLoadingAllUsers = false;
-  isLoadingUsers = false;
+  isSearchingUsers = false;
   isImpersonating = false;
   defaultPhoto = 'https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?auto=compress&cs=tinysrgb&w=100';
 
-  private searchSubject = new Subject<string>();
 
   tabGroups: TabGroup[] = [
     {
@@ -730,21 +729,20 @@ export class NavbarComponent {
           return of([]);
         }
         
-        this.isLoadingUsers = true;
+        this.isSearchingUsers = true;
         this.showUserDropdown = true;
         
         return of(this.searchUsersInCache(searchTerm));
       })
     ).subscribe(users => {
       this.filteredUsers = users;
-      this.isLoadingUsers = false;
+      this.isSearchingUsers = false;
     });
 
     // Charger tous les utilisateurs au démarrage
     this.loadAllUsers();
   }
 
-  private async loadAllUsers(): Promise<void> {
     if (this.usersLoaded) return;
     
     this.isLoadingAllUsers = true;
@@ -787,7 +785,6 @@ export class NavbarComponent {
     }
   }
 
-  private searchUsersInCache(searchTerm: string): ApiUser[] {
     if (!searchTerm || searchTerm.length < 2) {
       return [];
     }
@@ -801,25 +798,21 @@ export class NavbarComponent {
       .slice(0, 10); // Limiter à 10 résultats pour les performances
   }
 
-  onEmailInputChange(value: string): void {
     this.impersonationEmailInput = value;
     this.searchSubject.next(value);
   }
 
-  selectUser(user: ApiUser): void {
     this.impersonationEmailInput = user.USR_MAIL;
     this.showUserDropdown = false;
     this.filteredUsers = [];
   }
 
-  hideUserDropdown(): void {
     // Délai pour permettre le clic sur un élément de la liste
     setTimeout(() => {
       this.showUserDropdown = false;
     }, 200);
   }
 
-  private async loadUserPhoto(): Promise<void> {
     // Cette méthode sera appelée automatiquement par AuthService
     // lors du chargement du profil utilisateur
   }
@@ -862,7 +855,6 @@ export class NavbarComponent {
     this.showUserDropdown = false;
   }
   
-  startImpersonation(): void {
     if (this.impersonationEmailInput.trim()) {
       this.authService.impersonateUser(this.impersonationEmailInput.trim());
       this.closeImpersonationModal();
