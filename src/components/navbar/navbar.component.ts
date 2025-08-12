@@ -1,7 +1,26 @@
 import { Component, Input, Output, EventEmitter } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { HttpClient } from '@angular/common/http';
 import { AuthService, UserProfile } from '../../services/auth.service';
+import { environment } from '../../environments/environment';
+import { debounceTime, distinctUntilChanged, switchMap, of } from 'rxjs';
+import { Subject } from 'rxjs';
+
+interface ApiUser {
+  USR_ID: number;
+  USR_NOM: string;
+  USR_MAIL: string;
+  USR_DATE_DEBUT: string;
+  USR_UPDATE_DATE: string;
+}
+
+interface ApiResponse {
+  success: boolean;
+  data: ApiUser[];
+  count: number;
+  timestamp: string;
+}
 
 export interface TabGroup {
   name: string;
@@ -94,13 +113,38 @@ export interface TabGroup {
         <div class="modal-body">
           <div class="form-group">
             <label for="email-input">Adresse email de l'utilisateur :</label>
-            <input 
-              type="email" 
-              id="email-input"
-              [(ngModel)]="impersonationEmailInput"
-              placeholder="utilisateur@exemple.com"
-              class="email-input"
-              (keyup.enter)="startImpersonation()">
+            <div class="autocomplete-container">
+              <input 
+                type="email" 
+                id="email-input"
+                [value]="impersonationEmailInput"
+                (input)="onEmailInputChange($event.target.value)"
+                (blur)="hideUserDropdown()"
+                (keyup.enter)="startImpersonation()"
+                placeholder="Tapez pour rechercher un utilisateur..."
+                class="email-input"
+                autocomplete="off">
+              
+              <!-- Dropdown des suggestions -->
+              <div *ngIf="showUserDropdown" class="user-dropdown">
+                <div *ngIf="isLoadingUsers" class="loading-item">
+                  <i class="fas fa-spinner fa-spin"></i>
+                  Recherche en cours...
+                </div>
+                <div *ngFor="let user of filteredUsers" 
+                     class="user-item"
+                     (mousedown)="selectUser(user)">
+                  <div class="user-info">
+                    <div class="user-name">{{ user.USR_NOM }}</div>
+                    <div class="user-email">{{ user.USR_MAIL }}</div>
+                  </div>
+                </div>
+                <div *ngIf="!isLoadingUsers && filteredUsers.length === 0 && impersonationEmailInput.length >= 2" 
+                     class="no-results">
+                  Aucun utilisateur trouvé
+                </div>
+              </div>
+            </div>
           </div>
           <div class="warning-message">
             <i class="fas fa-exclamation-triangle"></i>
@@ -446,6 +490,74 @@ export interface TabGroup {
       box-shadow: 0 0 0 3px rgba(100, 206, 199, 0.1);
     }
 
+    .autocomplete-container {
+      position: relative;
+    }
+
+    .user-dropdown {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      background: white;
+      border: 1px solid var(--gray-300);
+      border-top: none;
+      border-radius: 0 0 8px 8px;
+      box-shadow: var(--shadow-lg);
+      max-height: 200px;
+      overflow-y: auto;
+      z-index: 1000;
+    }
+
+    .user-item {
+      padding: 12px 16px;
+      cursor: pointer;
+      transition: background-color 0.2s;
+      border-bottom: 1px solid var(--gray-100);
+    }
+
+    .user-item:hover {
+      background: var(--gray-50);
+    }
+
+    .user-item:last-child {
+      border-bottom: none;
+    }
+
+    .user-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .user-name {
+      font-weight: 500;
+      color: var(--gray-800);
+      font-size: 14px;
+    }
+
+    .user-email {
+      font-size: 12px;
+      color: var(--gray-600);
+    }
+
+    .loading-item {
+      padding: 12px 16px;
+      color: var(--gray-600);
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .no-results {
+      padding: 12px 16px;
+      color: var(--gray-500);
+      font-size: 14px;
+      font-style: italic;
+      text-align: center;
+    }
+
     .warning-message {
       display: flex;
       align-items: flex-start;
@@ -555,6 +667,10 @@ export class NavbarComponent {
   impersonatedEmail: string | null = null;
   showImpersonationModal = false;
   impersonationEmailInput = '';
+  searchSubject = new Subject<string>();
+  filteredUsers: ApiUser[] = [];
+  showUserDropdown = false;
+  isLoadingUsers = false;
   isImpersonating = false;
   defaultPhoto = 'https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?auto=compress&cs=tinysrgb&w=100';
 
@@ -579,7 +695,10 @@ export class NavbarComponent {
     }
   ];
 
-  constructor(private authService: AuthService) {
+  constructor(
+    private authService: AuthService,
+    private http: HttpClient
+  ) {
     this.authService.userProfile$.subscribe(user => {
       this.currentUser = user;
       // Charger la photo de profil si elle n'est pas encore chargée
@@ -596,6 +715,86 @@ export class NavbarComponent {
       this.impersonatedEmail = email;
       this.isImpersonating = email !== null;
     });
+    
+    // Configuration de la recherche avec debounce
+    this.searchSubject.pipe(
+      debounceTime(300),
+      distinctUntilChanged(),
+      switchMap(searchTerm => {
+        if (searchTerm.length < 2) {
+          return of([]);
+        }
+        return this.searchUsers(searchTerm);
+      })
+    ).subscribe(users => {
+      this.filteredUsers = users;
+      this.showUserDropdown = users.length > 0;
+      this.isLoadingUsers = false;
+    });
+  }
+
+  private searchUsers(searchTerm: string): Promise<ApiUser[]> {
+    this.isLoadingUsers = true;
+    
+    if (environment.features.enableMockData) {
+      // Données de test pour le mode Bolt
+      const mockUsers: ApiUser[] = [
+        { USR_ID: 1, USR_NOM: "GIANG", USR_MAIL: "thomas.giang@fr.gt.com", USR_DATE_DEBUT: "2017-09-04T00:00:00.000Z", USR_UPDATE_DATE: "2025-07-28T12:30:09.820Z" },
+        { USR_ID: 2, USR_NOM: "WODLING", USR_MAIL: "terence.wodling@fr.gt.com", USR_DATE_DEBUT: "2021-10-01T00:00:00.000Z", USR_UPDATE_DATE: "2025-07-28T12:30:12.203Z" },
+        { USR_ID: 3, USR_NOM: "KURKDJIAN", USR_MAIL: "daniel.kurkdjian@fr.gt.com", USR_DATE_DEBUT: "1976-11-02T00:00:00.000Z", USR_UPDATE_DATE: "2025-07-28T12:30:09.820Z" },
+        { USR_ID: 4, USR_NOM: "DE OLIVEIRA", USR_MAIL: "daniel.deoliveira@fr.gt.com", USR_DATE_DEBUT: "2016-11-14T00:00:00.000Z", USR_UPDATE_DATE: "2025-07-28T12:30:12.203Z" },
+        { USR_ID: 5, USR_NOM: "CIVIT", USR_MAIL: "daniel.civit@fr.gt.com", USR_DATE_DEBUT: "2016-11-03T00:00:00.000Z", USR_UPDATE_DATE: "2025-07-28T12:30:12.203Z" },
+        { USR_ID: 6, USR_NOM: "BIERNAT", USR_MAIL: "daniel.biernat@fr.gt.com", USR_DATE_DEBUT: "2016-06-06T00:00:00.000Z", USR_UPDATE_DATE: "2025-07-28T12:30:09.820Z" },
+        { USR_ID: 7, USR_NOM: "SIMPSON", USR_MAIL: "dana.simpson@fr.gt.com", USR_DATE_DEBUT: "2015-09-28T00:00:00.000Z", USR_UPDATE_DATE: "2025-07-28T12:30:12.587Z" },
+        { USR_ID: 8, USR_NOM: "WACHOWIAK", USR_MAIL: "damien.wachowiak@fr.gt.com", USR_DATE_DEBUT: "2016-06-06T00:00:00.000Z", USR_UPDATE_DATE: "2025-07-28T12:30:12.203Z" },
+        { USR_ID: 10, USR_NOM: "TETILLON", USR_MAIL: "romain.tetillon@fr.gt.com", USR_DATE_DEBUT: "2016-06-13T00:00:00.000Z", USR_UPDATE_DATE: "2025-07-28T12:30:12.203Z" },
+        { USR_ID: 11, USR_NOM: "MORON", USR_MAIL: "Damien.Moron@fr.gt.com", USR_DATE_DEBUT: null, USR_UPDATE_DATE: "2023-09-01T12:00:00.507Z" },
+        { USR_ID: 12, USR_NOM: "MAES", USR_MAIL: "damien.maes@fr.gt.com", USR_DATE_DEBUT: "2017-12-04T00:00:00.000Z", USR_UPDATE_DATE: "2025-07-28T12:30:12.203Z" }
+      ];
+      
+      const filtered = mockUsers.filter(user => 
+        user.USR_MAIL && 
+        user.USR_MAIL.toLowerCase().includes(searchTerm.toLowerCase())
+      ).slice(0, 10); // Limiter à 10 résultats
+      
+      return Promise.resolve(filtered);
+    }
+    
+    return this.http.get<ApiResponse>(`${environment.apiUrl}/api/users/`)
+      .toPromise()
+      .then(response => {
+        if (response && response.success && response.data) {
+          return response.data
+            .filter(user => 
+              user.USR_MAIL && 
+              user.USR_MAIL.toLowerCase().includes(searchTerm.toLowerCase())
+            )
+            .slice(0, 10); // Limiter à 10 résultats
+        }
+        return [];
+      })
+      .catch(error => {
+        console.error('Erreur lors de la recherche d\'utilisateurs:', error);
+        return [];
+      });
+  }
+
+  onEmailInputChange(value: string): void {
+    this.impersonationEmailInput = value;
+    this.searchSubject.next(value);
+  }
+
+  selectUser(user: ApiUser): void {
+    this.impersonationEmailInput = user.USR_MAIL;
+    this.showUserDropdown = false;
+    this.filteredUsers = [];
+  }
+
+  hideUserDropdown(): void {
+    // Délai pour permettre le clic sur un élément de la liste
+    setTimeout(() => {
+      this.showUserDropdown = false;
+    }, 200);
   }
 
   private async loadUserPhoto(): Promise<void> {
@@ -630,11 +829,15 @@ export class NavbarComponent {
   openImpersonationModal(): void {
     this.showImpersonationModal = true;
     this.impersonationEmailInput = '';
+    this.filteredUsers = [];
+    this.showUserDropdown = false;
   }
   
   closeImpersonationModal(): void {
     this.showImpersonationModal = false;
     this.impersonationEmailInput = '';
+    this.filteredUsers = [];
+    this.showUserDropdown = false;
   }
   
   startImpersonation(): void {
