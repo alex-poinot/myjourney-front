@@ -127,7 +127,7 @@ export interface TabGroup {
               
               <!-- Dropdown des suggestions -->
               <div *ngIf="showUserDropdown" class="user-dropdown">
-                <div *ngIf="isLoadingUsers" class="loading-item">
+                <div *ngIf="isSearchingUsers" class="loading-item">
                   <i class="fas fa-spinner fa-spin"></i>
                   Recherche en cours...
                 </div>
@@ -139,7 +139,7 @@ export interface TabGroup {
                     <div class="user-email">{{ user.USR_MAIL }}</div>
                   </div>
                 </div>
-                <div *ngIf="!isLoadingUsers && filteredUsers.length === 0 && impersonationEmailInput.length >= 2" 
+                <div *ngIf="!isSearchingUsers && filteredUsers.length === 0 && impersonationEmailInput.length >= 2" 
                      class="no-results">
                   Aucun utilisateur trouvé
                 </div>
@@ -675,8 +675,8 @@ export class NavbarComponent {
   isSearchingUsers = false;
   isImpersonating = false;
   defaultPhoto = 'https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?auto=compress&cs=tinysrgb&w=100';
-  searchSubject = new Subject<string>();
-  isLoadingUsers = false;
+
+  private searchSubject = new Subject<string>();
 
   tabGroups: TabGroup[] = [
     {
@@ -819,7 +819,7 @@ export class NavbarComponent {
     }, 200);
   }
 
-  private async loadUserPhoto(): Promise<void> {
+  private loadUserPhoto(): void {
     // Cette méthode sera appelée automatiquement par AuthService
     // lors du chargement du profil utilisateur
   }
