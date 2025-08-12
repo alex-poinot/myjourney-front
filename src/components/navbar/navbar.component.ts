@@ -736,8 +736,6 @@ export class NavbarComponent {
       this.isSearchingUsers = false;
     });
 
-    // Charger tous les utilisateurs au démarrage
-    this.loadAllUsers();
   }
 
   private async loadAllUsers(): Promise<void> {
@@ -746,8 +744,10 @@ export class NavbarComponent {
     }
     
     this.isLoadingAllUsers = true;
+    console.log('Chargement des utilisateurs...');
     
     if (environment.features.enableMockData) {
+      console.log('Mode Bolt: utilisation des données de test');
       // Données de test pour le mode Bolt
       const mockUsers: ApiUser[] = [
         { USR_ID: 1, USR_NOM: "GIANG", USR_MAIL: "thomas.giang@fr.gt.com", USR_DATE_DEBUT: "2017-09-04T00:00:00.000Z", USR_UPDATE_DATE: "2025-07-28T12:30:09.820Z" },
@@ -767,15 +767,18 @@ export class NavbarComponent {
       this.allUsers = mockUsers.filter(user => user.USR_MAIL && user.USR_MAIL.trim() !== '');
       this.usersLoaded = true;
       this.isLoadingAllUsers = false;
+      console.log(`${this.allUsers.length} utilisateurs chargés en mode Bolt`);
       return;
     }
     
     try {
+      console.log(`Appel API: ${environment.apiUrl}/api/users/`);
       const response = await this.http.get<ApiResponse>(`${environment.apiUrl}/api/users/`).toPromise();
       if (response && response.success && response.data) {
         // Filtrer les utilisateurs avec un email valide
         this.allUsers = response.data.filter(user => user.USR_MAIL && user.USR_MAIL.trim() !== '');
         this.usersLoaded = true;
+        console.log(`${this.allUsers.length} utilisateurs chargés depuis l'API`);
       }
     } catch (error) {
       console.error('Erreur lors du chargement des utilisateurs:', error);
@@ -790,18 +793,31 @@ export class NavbarComponent {
       return [];
     }
     
+    console.log(`Recherche dans ${this.allUsers.length} utilisateurs pour: "${searchTerm}"`);
     const term = searchTerm.toLowerCase();
-    return this.allUsers
+    const results = this.allUsers
       .filter(user => 
         user.USR_MAIL.toLowerCase().includes(term) ||
         user.USR_NOM.toLowerCase().includes(term)
       )
       .slice(0, 10); // Limiter à 10 résultats pour les performances
+    
+    console.log(`${results.length} résultats trouvés`);
+    return results;
   }
 
   onEmailInputChange(value: string): void {
     this.impersonationEmailInput = value;
-    this.searchSubject.next(value);
+    console.log('Recherche pour:', value);
+    
+    // S'assurer que les utilisateurs sont chargés
+    if (!this.usersLoaded && !this.isLoadingAllUsers) {
+      this.loadAllUsers().then(() => {
+        this.searchSubject.next(value);
+      });
+    } else {
+      this.searchSubject.next(value);
+    }
   }
 
   selectUser(user: ApiUser): void {
@@ -851,6 +867,11 @@ export class NavbarComponent {
     this.impersonationEmailInput = '';
     this.filteredUsers = [];
     this.showUserDropdown = false;
+    
+    // Charger les utilisateurs quand on ouvre le modal
+    if (!this.usersLoaded && !this.isLoadingAllUsers) {
+      this.loadAllUsers();
+    }
   }
   
   closeImpersonationModal(): void {
