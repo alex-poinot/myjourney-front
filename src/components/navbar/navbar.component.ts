@@ -705,10 +705,6 @@ export class NavbarComponent {
   ) {
     this.authService.userProfile$.subscribe(user => {
       this.currentUser = user;
-      // Charger la photo de profil si elle n'est pas encore chargée
-      if (user && !user.photoUrl) {
-        this.loadUserPhoto();
-      }
     });
     
     this.authService.originalUser$.subscribe(user => {
@@ -744,11 +740,6 @@ export class NavbarComponent {
     this.loadAllUsers();
   }
 
-  private async loadAllUsers(): Promise<void> {
-    if (this.usersLoaded) return;
-    
-    this.isLoadingAllUsers = true;
-    
     if (environment.features.enableMockData) {
       // Données de test pour le mode Bolt
       const mockUsers: ApiUser[] = [
